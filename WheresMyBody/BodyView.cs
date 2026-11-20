@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using EFT;
+using EFT.CameraControl;
 using EFT.HealthSystem;
 using EFT.InventoryLogic;
 using EFT.Visual;
@@ -37,7 +38,7 @@ namespace WheresMyBody
         };
 
         // your own body last seen in first person, so turning the mod back on can find it
-        private static PlayerBody _lastBody;
+        private float _leanNow = 0.03f;
 
         internal static int ActiveCount => Active.Count;
         internal static int CloneCount => BySource.Count;
@@ -113,14 +114,10 @@ namespace WheresMyBody
 
         internal static void OnPointOfView(PlayerBody body, EPointOfView pointOfView)
         {
-            if (pointOfView == EPointOfView.FirstPerson && IsRaidPlayer(body))
+            if (pointOfView == EPointOfView.FirstPerson && IsOwnPlayer(body))
             {
-                _lastBody = body;
-                if (Plugin.Enabled.Value)
-                {
-                    Activate(body);
-                    return;
-                }
+                Activate(body);
+                return;
             }
             Deactivate(body);
         }
@@ -128,25 +125,8 @@ namespace WheresMyBody
         internal static void OnDispose(PlayerBody body)
         {
             Deactivate(body);
-            Patches.OwnBullets.Clear();
             foreach (PlayerBody.SlotView slot in body.SlotViews.GetValuesEnumerator())
                 Patches.Snapshots.Remove(slot);
-            if (_lastBody == body)
-                _lastBody = null;
-        }
-
-        internal static void OnSettingsChanged()
-        {
-            if (!Plugin.Enabled.Value)
-            {
-                DeactivateAll();
-                return;
-            }
-            PlayerBody body = _lastBody;
-            if (body != null && body.PointOfView.Value == EPointOfView.FirstPerson && IsRaidPlayer(body))
-                Activate(body);
-            else
-                _lastBody = null;
         }
 
         internal static void OnSourceBlockChanged(Renderer source)
@@ -155,14 +135,15 @@ namespace WheresMyBody
                 CopyBlocks(clone);
         }
 
-        private static bool IsRaidPlayer(PlayerBody body)
+        // you, in a raid or in the hideout; not the character in a cutscene
+        private static bool IsOwnPlayer(PlayerBody body)
         {
             if (body == null || !Patches.IsYourPlayer(body))
                 return false;
             Player player = body.PlayerBones != null ? body.PlayerBones.Player : null;
             if (player == null)
                 player = body.GetComponentInParent<Player>();
-            if (player == null || !player.IsYourPlayer || player is HideoutPlayer || player is NarratePlayer)
+            if (player == null || !player.IsYourPlayer || player is NarratePlayer)
                 return false;
             IHealthController health = player.HealthController;
             return health == null || health.IsAlive;
@@ -194,14 +175,6 @@ namespace WheresMyBody
             Active.Remove(body);
             view.Restore();
             Destroy(view.gameObject);
-        }
-
-        private static void DeactivateAll()
-        {
-            if (Active.Count == 0)
-                return;
-            foreach (PlayerBody body in new List<PlayerBody>(Active.Keys))
-                Deactivate(body);
         }
 
         private bool Init(PlayerBody body)
@@ -252,9 +225,20 @@ namespace WheresMyBody
             return bone;
         }
 
+        // How far back the torso is drawn. The first person camera sits at the top of the chest, so the wider the
+        // view, the more of the chest fills it when you look down. About 3 cm at the game's top FOV of 75, 12 cm at
+        // 100, at most 20 cm. Eased, so aiming down sights, which narrows the view, doesn't jolt the body.
+        private float LeanForFov()
+        {
+            Camera camera = CameraManager.Exist ? CameraManager.Instance.Camera : null;
+            float target = camera != null ? Mathf.Clamp(0.03f + (camera.fieldOfView - 75f) * 0.0036f, 0f, 0.2f) : _leanNow;
+            _leanNow = Mathf.MoveTowards(_leanNow, target, 0.3f * Time.deltaTime);
+            return _leanNow;
+        }
+
         private void UpdateLean()
         {
-            float lean = Plugin.LeanBack.Value;
+            float lean = LeanForFov();
             if (lean <= 0f || _facing == null || _facing.Original == null)
             {
                 if (_leaning)
@@ -310,7 +294,7 @@ namespace WheresMyBody
         internal void RefreshTorso()
         {
             RemoveClones(TorsoKey);
-            if (!Plugin.Torso.Value || !_body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) || skin == null)
+            if (!_body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) || skin == null)
                 return;
             foreach (Renderer renderer in skin.GetRenderers())
                 AddClone(renderer as SkinnedMeshRenderer, TorsoKey);
@@ -354,14 +338,12 @@ namespace WheresMyBody
             EquipmentSlot? slot = SlotOf(dress);
             if (slot == null)
                 return;
-            bool armband = slot == EquipmentSlot.ArmBand;
-            if (armband ? !Plugin.Armband.Value : !GearWanted(slot.Value))
+            if (!GearWanted(slot.Value))
                 return;
             foreach (Renderer renderer in dress.GetRenderers())
             {
-                // the armband sits on the arm, which is the game's own first person arm, so the original is shown.
-                // Other gear pieces are copied, except any that aren't skinned: those are shown as they are.
-                if (renderer != null && (armband || !(renderer is SkinnedMeshRenderer)))
+                // gear pieces are copied, except any that aren't skinned: those are shown as they are
+                if (renderer != null && !(renderer is SkinnedMeshRenderer))
                     renderer.shadowCastingMode = ShadowCastingMode.On;
             }
         }
@@ -384,28 +366,17 @@ namespace WheresMyBody
             {
                 case EquipmentSlot.ArmorVest:
                 case EquipmentSlot.TacticalVest:
-                    return Plugin.Armor.Value;
                 case EquipmentSlot.Backpack:
-                    return Plugin.Backpack.Value;
+                    return true;
                 default:
                     return false;
             }
         }
 
+        // the holstered pistol and the knife show; long guns slung on the back stay as the game has them
         private static bool WeaponWanted(EquipmentSlot slot)
         {
-            switch (slot)
-            {
-                case EquipmentSlot.Holster:
-                    return Plugin.Pistol.Value;
-                case EquipmentSlot.Scabbard:
-                    return Plugin.Knife.Value;
-                case EquipmentSlot.FirstPrimaryWeapon:
-                case EquipmentSlot.SecondPrimaryWeapon:
-                    return Plugin.Slung.Value;
-                default:
-                    return false;
-            }
+            return slot == EquipmentSlot.Holster || slot == EquipmentSlot.Scabbard;
         }
 
         // the game hides weapon models on your own body; shown puts back each renderer as it was before that

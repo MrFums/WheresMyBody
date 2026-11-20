@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using EFT;
-using EFT.Ballistics;
-using EFT.InventoryLogic;
 using EFT.Visual;
 using HarmonyLib;
 using UnityEngine;
@@ -60,73 +58,6 @@ namespace WheresMyBody
                 postfix: nameof(OnDeadPostfix));
             Patch(harmony, AccessTools.Method(typeof(HotObject), nameof(HotObject.SetTemperatureToRenderer),
                 new[] { typeof(float), typeof(bool) }), postfix: nameof(SetTemperaturePostfix));
-            // your own gun shots are noted as they are made, so grenade and mine fragments never count
-            System.Reflection.MethodInfo initiateShot = AccessTools.Method(typeof(Player.FirearmController), nameof(Player.FirearmController.InitiateShot));
-            if (initiateShot == null)
-                throw new MissingMethodException("a game method this mod hooks is missing (InitiateShot)");
-            harmony.Patch(initiateShot, prefix: new HarmonyMethod(typeof(Patches), nameof(InitiateShotPrefix)),
-                finalizer: new HarmonyMethod(typeof(Patches), nameof(InitiateShotFinalizer)));
-            Patch(harmony, AccessTools.Method(typeof(BallisticsCalculator), nameof(BallisticsCalculator.CreateShot)),
-                postfix: nameof(CreateShotPostfix));
-            // the instance test is what every bullet's hit check calls
-            Patch(harmony, AccessTools.Method(typeof(Shot), nameof(Shot.IsHitIgnored), new[] { typeof(RaycastHit) }),
-                postfix: nameof(IsHitIgnoredPostfix));
-        }
-
-        private static readonly EBodyPartColliderType[] LegColliders =
-        {
-            EBodyPartColliderType.LeftThigh, EBodyPartColliderType.LeftCalf,
-            EBodyPartColliderType.RightThigh, EBodyPartColliderType.RightCalf
-        };
-
-        private static bool _firingOwnGun;
-
-        // shots from your own gun, with the cartridge each was fired with. The game reuses shot objects, so a
-        // shot only counts while it still carries that same cartridge. Bounded by the game's shot pool.
-        internal static readonly Dictionary<Shot, Item> OwnBullets = new Dictionary<Shot, Item>();
-
-        private static void InitiateShotPrefix(Player.FirearmController __instance)
-        {
-            Player player = __instance._player;
-            _firingOwnGun = Plugin.LegHits.Value && player != null && player.IsYourPlayer && !(player is HideoutPlayer);
-        }
-
-        private static Exception InitiateShotFinalizer(Exception __exception)
-        {
-            _firingOwnGun = false;
-            return __exception;
-        }
-
-        private static void CreateShotPostfix(Shot __result)
-        {
-            if (_firingOwnGun && __result != null)
-                OwnBullets[__result] = __result.Ammo;
-        }
-
-        // The game lets a bullet pass through everything of its own shooter (only its first part; ricochets and
-        // fragments already hit you). For your own gun's bullets in a raid, your legs take the hit instead.
-        private static void IsHitIgnoredPostfix(Shot __instance, RaycastHit hit, ref bool __result)
-        {
-            if (!__result || OwnBullets.Count == 0 || !__instance.IsFirstFragment || !Plugin.LegHits.Value)
-                return;
-            if (!OwnBullets.TryGetValue(__instance, out Item ammo) || !ReferenceEquals(ammo, __instance.Ammo))
-                return;
-            if (!(__instance.Player?.iPlayer is Player player) || !player.IsYourPlayer)
-                return;
-            Collider collider = hit.collider;
-            PlayerBones bones = player.PlayerBones;
-            if (collider == null || bones == null)
-                return;
-            Dictionary<EBodyPartColliderType, BodyPartCollider> colliders = bones.BodyPartCollidersDictionary;
-            for (int i = 0; i < LegColliders.Length; i++)
-            {
-                if (!colliders.TryGetValue(LegColliders[i], out BodyPartCollider leg) || leg == null || leg.Collider != collider)
-                    continue;
-                // keep the game's other reason to skip a hit: the bullet already went through this same part
-                if (!__instance.IsIgnoreSameCollider(hit))
-                    __result = false;
-                return;
-            }
         }
 
         private static void Patch(Harmony harmony, System.Reflection.MethodInfo target, string prefix = null, string postfix = null)

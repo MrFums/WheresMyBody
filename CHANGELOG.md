@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Works in the hideout too.
+- No F12 settings. Torso, armor, rig, backpack, holstered pistol and knife always show.
+- How far back your torso is drawn now follows your FOV, so your body shows at a low FOV.
+- Your own bullets pass through your legs again, as in the game. Armband and slung guns stay hidden.
+
 ## 1.0.0
 
 First release.
