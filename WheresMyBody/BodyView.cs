@@ -16,11 +16,13 @@ namespace WheresMyBody
     // left exactly as the game sets them, so your shadow stays the game's. For each one this adds a copy that is
     // drawn but casts no shadow. The copy shares the original's mesh and materials and is skinned to the same
     // skeleton, with three changes:
-    //  - the arms fold away (the game's first person arms are already drawn on the same bones),
+    //  - the forearms and hands fold away (the game's first person arms are already drawn on the same bones);
+    //    the upper sleeves stay, since the game's arm stops partway up,
     //  - the neck and head fold away (the camera sits there),
     //  - the shoulders and anything else on the ribcage follow the chest as modelled. In first person the game
     //    turns the ribcage with your aim and squashes it to suit the field of view, which would bend the torso.
-    // Nothing here runs per frame except a short check of each copy against its original.
+    // Per frame, only the camera check that sets how far the torso sinks and a short check of each copy against its
+    // original run.
     internal sealed class BodyView : MonoBehaviour
     {
         private const int TorsoKey = -1;
@@ -37,9 +39,6 @@ namespace WheresMyBody
             EquipmentSlot.Holster, EquipmentSlot.Scabbard, EquipmentSlot.FirstPrimaryWeapon, EquipmentSlot.SecondPrimaryWeapon
         };
 
-        // your own body last seen in first person, so turning the mod back on can find it
-        private float _leanNow = 0.03f;
-
         internal static int ActiveCount => Active.Count;
         internal static int CloneCount => BySource.Count;
 
@@ -51,15 +50,34 @@ namespace WheresMyBody
         private Transform _rightCollar;
         private Transform _leftArm;
         private Transform _rightArm;
-        private BifacialTransform _facing;
         private readonly List<Clone> _clones = new List<Clone>();
 
-        // The camera sits at the top of the chest, so the copies lean back from the hips: each spine bone has a
-        // stand-in that sits a little behind it, more the higher up the spine. Shared by every copy.
-        private static readonly float[] LeanWeights = { 1f / 3f, 2f / 3f, 1f };
+        // The first person camera sits inside the top of the chest, so the copies sink down the spine until the
+        // camera clears it: each spine bone has a stand-in that sits a little lower, more the higher up the spine.
+        // Shared by every copy.
+        private const float CameraClearance = 0.04f;
+        private const float MaxSink = 0.3f;
+        private const float RiseSpeed = 0.3f;
+        private const float BackWhenLevel = 0.15f;
+        // how far down you look, as the sine of the angle below level: about 35 degrees, and about 6
+        private const float LookDownShown = 0.57f;
+        private const float LookDownHidden = 0.1f;
+        // how far in front of the neck the front of the chest and vest reaches, and the distance the sink fades over
+        private const float ChestFront = 0.25f;
+        private const float ChestFrontBlend = 0.05f;
+        private static readonly float[] SinkWeights = { 1f / 3f, 2f / 3f, 1f };
         private readonly Transform[] _spine = new Transform[3];
         private readonly Transform[] _lean = new Transform[3];
+        private float _sink;
         private bool _leaning;
+
+        // how much thinner the upper sleeves are than the real arm, and how small the folded forearm gets
+        private const float SleeveInset = 0.97f;
+        private const float ElbowFold = 1e-3f;
+        private readonly Dictionary<Transform, Transform> _sleeves = new Dictionary<Transform, Transform>();
+        private readonly Transform[] _elbows = new Transform[2];
+        private Transform _leftForearm;
+        private Transform _rightForearm;
 
         private sealed class Clone
         {
@@ -193,9 +211,9 @@ namespace WheresMyBody
             _rightCollar = _ribcage.Find("Base HumanRCollarbone");
             _leftArm = FirstChild(_leftCollar, "Base HumanLUpperarm");
             _rightArm = FirstChild(_rightCollar, "Base HumanRUpperarm");
+            _leftForearm = ChildNamed(_leftArm, "Forearm");
+            _rightForearm = ChildNamed(_rightArm, "Forearm");
 
-            Player player = bones != null && bones.Player != null ? bones.Player : body.GetComponentInParent<Player>();
-            _facing = player != null ? player.Transform : null;
             _spine[2] = _anchor;
             _spine[1] = IsSpine(_anchor.parent) ? _anchor.parent : null;
             _spine[0] = _spine[1] != null && IsSpine(_spine[1].parent) ? _spine[1].parent : null;
@@ -225,21 +243,54 @@ namespace WheresMyBody
             return bone;
         }
 
-        // How far back the torso is drawn. The first person camera sits at the top of the chest, so the wider the
-        // view, the more of the chest fills it when you look down. About 3 cm at the game's top FOV of 75, 12 cm at
-        // 100, at most 20 cm. Eased, so aiming down sights, which narrows the view, doesn't jolt the body.
-        private float LeanForFov()
+        // How far the torso sinks: just enough that the top of the chest, at the base of the neck, is below the
+        // camera, measured along your spine so it holds crouched, prone and leaning. The camera moves with your
+        // aim and with the game's FOV adjustment, so this is measured every frame. It sinks at once when the
+        // camera needs more room and rises back slowly.
+        private float SinkForCamera(out Vector3 up, out Vector3 back, out float lookDown)
         {
+            up = Vector3.zero;
+            back = Vector3.zero;
+            lookDown = 0f;
             Camera camera = CameraManager.Exist ? CameraManager.Instance.Camera : null;
-            float target = camera != null ? Mathf.Clamp(0.03f + (camera.fieldOfView - 75f) * 0.0036f, 0f, 0.2f) : _leanNow;
-            _leanNow = Mathf.MoveTowards(_leanNow, target, 0.3f * Time.deltaTime);
-            return _leanNow;
+            if (camera == null || _neck == null)
+                return 0f;
+            Vector3 neck = _neck.position;
+            Vector3 toNeck = neck - camera.transform.position;
+            // the camera is somewhere else, such as looking at a hideout area: the body stays as modelled
+            if (toNeck.sqrMagnitude > 1f)
+                return 0f;
+            up = neck - _anchor.position;
+            if (up.sqrMagnitude < 1e-6f)
+                return 0f;
+            up.Normalize();
+            Vector3 look = camera.transform.forward;
+            lookDown = -Vector3.Dot(look, up);
+            // shorter the more your view runs along your spine, as when prone, so it never flips direction
+            back = Vector3.ProjectOnPlane(-look, up);
+            float sink = Mathf.Clamp(Vector3.Dot(toNeck, up) + camera.nearClipPlane + CameraClearance, 0f, MaxSink);
+            // Looking down, the camera swings forward with your aim and can end up in front of the chest rather
+            // than inside it. There it needs no room, and sinking would only pull the shoulders off the arms.
+            if (sink > 0f && _leftArm != null && _rightArm != null)
+            {
+                Vector3 front = Vector3.Cross(_rightArm.position - _leftArm.position, up);
+                if (front.sqrMagnitude > 1e-6f)
+                {
+                    float ahead = Vector3.Dot(-toNeck, front.normalized) - camera.nearClipPlane;
+                    sink *= 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(ChestFront, ChestFront + ChestFrontBlend, ahead));
+                }
+            }
+            return sink;
         }
 
         private void UpdateLean()
         {
-            float lean = LeanForFov();
-            if (lean <= 0f || _facing == null || _facing.Original == null)
+            float target = SinkForCamera(out Vector3 up, out Vector3 back, out float lookDown);
+            _sink = target >= _sink ? target : Mathf.MoveTowards(_sink, target, RiseSpeed * Time.deltaTime);
+            // Looking level or up, a wide view would catch the shoulders at the edge of the screen, so the torso
+            // also moves back out of sight. That eases off as you look down, where you see all of it.
+            float away = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(LookDownShown, LookDownHidden, lookDown)) * BackWhenLevel;
+            if ((_sink <= 0f && away <= 0f) || up == Vector3.zero)
             {
                 if (_leaning)
                 {
@@ -252,22 +303,58 @@ namespace WheresMyBody
                 }
                 return;
             }
-            // straight back from where you face, level with the ground
-            Vector3 forward = _facing.forward;
-            forward.y = 0f;
-            if (forward.sqrMagnitude < 1e-6f)
-                return;
-            Vector3 back = forward.normalized * -lean;
+            Vector3 shift = up * -_sink + back * away;
             for (int i = 0; i < _lean.Length; i++)
             {
                 if (_lean[i] != null)
-                    _lean[i].localPosition = _spine[i].InverseTransformVector(back * LeanWeights[i]);
+                    _lean[i].localPosition = _spine[i].InverseTransformVector(shift * SinkWeights[i]);
             }
             _leaning = true;
         }
 
+        // The game's first person arm ends partway up the upper arm, so the copies keep their upper sleeves: each
+        // upper arm bone gets a stand-in on the real bone, a little thinner so the game's sleeve stays on top where
+        // both are drawn. Shared by every copy, and nothing about them changes per frame.
+        private Transform Sleeve(Transform bone)
+        {
+            if (_sleeves.TryGetValue(bone, out Transform proxy) && proxy != null)
+                return proxy;
+            proxy = new GameObject("WheresMyBody sleeve").transform;
+            proxy.SetParent(bone, false);
+            proxy.localScale = new Vector3(SleeveInset, SleeveInset, SleeveInset);
+            _sleeves[bone] = proxy;
+            return proxy;
+        }
+
+        // the forearm and hand, which the game's arm already shows, shrink into the elbow of the sleeve stand-in
+        private Transform Elbow(int side)
+        {
+            if (_elbows[side] != null)
+                return _elbows[side];
+            Transform upper = side == 0 ? _leftArm : _rightArm;
+            Transform forearm = side == 0 ? _leftForearm : _rightForearm;
+            Transform proxy = new GameObject("WheresMyBody elbow").transform;
+            proxy.SetParent(Sleeve(upper), false);
+            proxy.localPosition = upper.InverseTransformPoint(forearm.position);
+            proxy.localScale = new Vector3(ElbowFold, ElbowFold, ElbowFold);
+            _elbows[side] = proxy;
+            return proxy;
+        }
+
         private void DestroyLean()
         {
+            for (int i = 0; i < _elbows.Length; i++)
+            {
+                if (_elbows[i] != null)
+                    Destroy(_elbows[i].gameObject);
+                _elbows[i] = null;
+            }
+            foreach (Transform proxy in _sleeves.Values)
+            {
+                if (proxy != null)
+                    Destroy(proxy.gameObject);
+            }
+            _sleeves.Clear();
             for (int i = 0; i < _lean.Length; i++)
             {
                 if (_lean[i] != null)
@@ -282,6 +369,19 @@ namespace WheresMyBody
                 return null;
             Transform child = parent.Find(name);
             return child != null ? child : parent.childCount > 0 ? parent.GetChild(0) : null;
+        }
+
+        private static Transform ChildNamed(Transform parent, string part)
+        {
+            if (parent == null)
+                return null;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                Transform child = parent.GetChild(i);
+                if (child.name.IndexOf(part, StringComparison.Ordinal) >= 0)
+                    return child;
+            }
+            return null;
         }
 
         internal void RefreshAll()
@@ -601,11 +701,16 @@ namespace WheresMyBody
                     case Part.Rigid:
                         mapped[i] = RigidProxy(clone, anchor, modelled, anchorBind, bone, bindposes[i]);
                         break;
+                    // only the upper arm unfolds; anything else on the arm folds into the elbow
                     case Part.LeftArm:
-                        mapped[i] = leftFold ?? (leftFold = FoldProxy(clone, anchor, modelled, anchorBind, _leftArm, bones, bindposes, i));
+                        mapped[i] = _leftForearm != null
+                            ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(0)
+                            : leftFold ?? (leftFold = FoldProxy(clone, anchor, modelled, anchorBind, _leftArm, bones, bindposes, i));
                         break;
                     case Part.RightArm:
-                        mapped[i] = rightFold ?? (rightFold = FoldProxy(clone, anchor, modelled, anchorBind, _rightArm, bones, bindposes, i));
+                        mapped[i] = _rightForearm != null
+                            ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(1)
+                            : rightFold ?? (rightFold = FoldProxy(clone, anchor, modelled, anchorBind, _rightArm, bones, bindposes, i));
                         break;
                     case Part.Neck:
                         mapped[i] = neckFold ?? (neckFold = FoldProxy(clone, anchor, modelled, anchorBind, _neck, bones, bindposes, i));
@@ -623,6 +728,11 @@ namespace WheresMyBody
                 copy.SetBlendShapeWeight(i, source.GetBlendShapeWeight(i));
             if (clone.Shown)
                 copy.enabled = true;
+        }
+
+        private static bool IsUpperArm(Transform bone)
+        {
+            return bone.name.IndexOf("Upperarm", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private Part Classify(Transform bone)
