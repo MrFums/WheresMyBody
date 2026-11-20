@@ -14,9 +14,6 @@ SPT 4.1.x. Client only, no server part.
 
 To update, extract over the old one. To remove, delete `BepInEx\plugins\WheresMyBody`.
 
-## Fika
-Works in Fika raids. The body view only changes what you see of yourself. Leg hits apply to your own shots only.
-
 ## Settings
 Press **F12** in game.
 
