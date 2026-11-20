@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>WheresMyBody</AssemblyName>
+    <RootNamespace>WheresMyBody</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Version>1.0.0</Version>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <Deterministic>true</Deterministic>
+    <!-- Don't put this PC's folder path into the built DLL. -->
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+
+    <!-- The SPT folder comes from -p:SPTPath=... or from the gitignored spt-path.txt next to build.ps1. -->
+    <SPTPathFile>$(MSBuildProjectDirectory)\..\spt-path.txt</SPTPathFile>
+    <SPTPath Condition="'$(SPTPath)' == '' And Exists('$(SPTPathFile)')">$([System.IO.File]::ReadAllText('$(SPTPathFile)').Trim())</SPTPath>
+    <Managed>$(SPTPath)\EscapeFromTarkov_Data\Managed</Managed>
+    <BepInExCore>$(SPTPath)\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+
+  <Target Name="CheckSPTPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(SPTPath)' == '' Or !Exists('$(Managed)\Assembly-CSharp.dll')" Text="Set the SPT folder in spt-path.txt or pass -p:SPTPath=..." />
+  </Target>
+
+  <ItemGroup>
+    <Reference Include="BepInEx" HintPath="$(BepInExCore)\BepInEx.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(BepInExCore)\0Harmony.dll" Private="false" />
+    <Reference Include="Assembly-CSharp" HintPath="$(Managed)\Assembly-CSharp.dll" Private="false" />
+    <Reference Include="Comfort" HintPath="$(Managed)\Comfort.dll" Private="false" />
+    <Reference Include="Comfort.Unity" HintPath="$(Managed)\Comfort.Unity.dll" Private="false" />
+    <Reference Include="CommonExtensions" HintPath="$(Managed)\CommonExtensions.dll" Private="false" />
+    <Reference Include="UnityEngine" HintPath="$(Managed)\UnityEngine.dll" Private="false" />
+    <Reference Include="UnityEngine.CoreModule" HintPath="$(Managed)\UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="UnityEngine.PhysicsModule" HintPath="$(Managed)\UnityEngine.PhysicsModule.dll" Private="false" />
+  </ItemGroup>
+
+</Project>

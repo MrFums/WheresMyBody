@@ -1,0 +1,20 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Editor settings
+.vs/
+.vscode/
+*.user
+
+# Local only: paths on this PC, build script, notes, release files
+build.ps1
+spt-path.txt
+CLAUDE.local.md
+WheresMyBody Files/
+
+# Local screenshots and recordings (the README image is added on its own)
+*.png
+*.jpg
+*.mp4
