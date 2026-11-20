@@ -73,8 +73,8 @@ namespace WheresMyBody
                     + "and it hangs where the game puts it, so with Lean back above 0 it sits a little away from your leaned backpack.",
                     null, Order(68)));
 
-            LegHits = Config.Bind("5. Gameplay", "Your shots can hit your legs", true,
-                new ConfigDescription("Shoot your own leg or foot and it takes the hit, like a shot from anyone else. Off is how the game works: "
+            LegHits = Config.Bind("5. Gameplay", "Your shots can hit your legs", false,
+                new ConfigDescription("Shoot your own leg or foot and it takes the hit, like a shot from anyone else. Off by default, which is how the game works: "
                     + "your own bullet passes through your body. Works in raids, not in the hideout.", null, Order(60)));
 
             Enabled.SettingChanged += OnSettingChanged;

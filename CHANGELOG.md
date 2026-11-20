@@ -9,4 +9,4 @@ First release.
 - Armband and slung long guns can be turned on in F12. Both are off by default.
 - Each part has its own switch in F12.
 - Lean back in F12 sets how far back your torso is drawn, so your chest doesn't fill the view when you look down.
-- Your own bullets can hit your legs and feet. Turn it off in F12 to keep the game's way.
+- Your own bullets can hit your legs and feet. Off by default; turn it on in F12.
