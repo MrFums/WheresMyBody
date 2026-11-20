@@ -13,6 +13,8 @@
     <Deterministic>true</Deterministic>
     <!-- Don't put this PC's folder path into the built DLL. -->
     <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <!-- Keep the git commit out of the version, so the DLL is the same for the same source. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 
     <!-- The SPT folder comes from -p:SPTPath=... or from the gitignored spt-path.txt next to build.ps1. -->
     <SPTPathFile>$(MSBuildProjectDirectory)\..\spt-path.txt</SPTPathFile>

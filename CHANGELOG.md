@@ -4,9 +4,8 @@
 
 First release.
 
-- Look down in a raid to see your own torso, armor, rig and backpack, as your character wears them.
-- Your holstered pistol and sheathed knife show on your body.
-- Armband and slung long guns can be turned on in F12. Both are off by default.
-- Each part has its own switch in F12.
-- Lean back in F12 sets how far back your torso is drawn, so your chest doesn't fill the view when you look down.
-- Your own bullets can hit your legs and feet. Off by default; turn it on in F12.
+- Look down to see your torso, armor, rig and backpack.
+- Your holstered pistol and knife show on your body.
+- Armband and slung guns can be turned on in F12.
+- Lean back in F12 sets how far back your torso is drawn.
+- Your own bullets can hit your legs. Off by default.
