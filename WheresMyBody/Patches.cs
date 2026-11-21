@@ -69,6 +69,11 @@ namespace WheresMyBody
                 postfix: postfix == null ? null : new HarmonyMethod(typeof(Patches), postfix));
         }
 
+        internal static void OnSettingsChanged()
+        {
+            Guard(BodyView.OnSettingsChanged);
+        }
+
         // a body being set up again starts from the game's own state, whoever it is for now
         private static void InitPrefix(PlayerBody __instance)
         {

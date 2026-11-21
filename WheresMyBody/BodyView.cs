@@ -17,7 +17,7 @@ namespace WheresMyBody
     // drawn but casts no shadow. The copy shares the original's mesh and materials and is skinned to the same
     // skeleton, with three changes:
     //  - the forearms and hands fold away (the game's first person arms are already drawn on the same bones);
-    //    the upper sleeves stay, since the game's arm stops partway up,
+    //    the upper sleeves stay (unless turned off), since the game's arm stops partway up,
     //  - the neck and head fold away (the camera sits there),
     //  - the shoulders and anything else on the ribcage follow the chest as modelled. In first person the game
     //    turns the ribcage with your aim and squashes it to suit the field of view, which would bend the torso.
@@ -38,6 +38,9 @@ namespace WheresMyBody
             EquipmentSlot.ArmorVest, EquipmentSlot.TacticalVest, EquipmentSlot.Backpack, EquipmentSlot.ArmBand,
             EquipmentSlot.Holster, EquipmentSlot.Scabbard, EquipmentSlot.FirstPrimaryWeapon, EquipmentSlot.SecondPrimaryWeapon
         };
+
+        // your own body last seen in first person, so turning the mod back on can find it
+        private static PlayerBody _lastBody;
 
         internal static int ActiveCount => Active.Count;
         internal static int CloneCount => BySource.Count;
@@ -134,8 +137,12 @@ namespace WheresMyBody
         {
             if (pointOfView == EPointOfView.FirstPerson && IsOwnPlayer(body))
             {
-                Activate(body);
-                return;
+                _lastBody = body;
+                if (Plugin.Enabled.Value)
+                {
+                    Activate(body);
+                    return;
+                }
             }
             Deactivate(body);
         }
@@ -145,6 +152,26 @@ namespace WheresMyBody
             Deactivate(body);
             foreach (PlayerBody.SlotView slot in body.SlotViews.GetValuesEnumerator())
                 Patches.Snapshots.Remove(slot);
+            if (_lastBody == body)
+                _lastBody = null;
+        }
+
+        // a setting changed in F12: show what it now asks for, on the body in view
+        internal static void OnSettingsChanged()
+        {
+            if (!Plugin.Enabled.Value)
+            {
+                if (Active.Count == 0)
+                    return;
+                foreach (PlayerBody active in new List<PlayerBody>(Active.Keys))
+                    Deactivate(active);
+                return;
+            }
+            PlayerBody body = _lastBody;
+            if (body != null && body.PointOfView.Value == EPointOfView.FirstPerson && IsOwnPlayer(body))
+                Activate(body);
+            else
+                _lastBody = null;
         }
 
         internal static void OnSourceBlockChanged(Renderer source)
@@ -394,7 +421,7 @@ namespace WheresMyBody
         internal void RefreshTorso()
         {
             RemoveClones(TorsoKey);
-            if (!_body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) || skin == null)
+            if (!Plugin.Torso.Value || !_body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) || skin == null)
                 return;
             foreach (Renderer renderer in skin.GetRenderers())
                 AddClone(renderer as SkinnedMeshRenderer, TorsoKey);
@@ -465,18 +492,28 @@ namespace WheresMyBody
             switch (slot)
             {
                 case EquipmentSlot.ArmorVest:
+                    return Plugin.Armor.Value;
                 case EquipmentSlot.TacticalVest:
+                    return Plugin.Rig.Value;
                 case EquipmentSlot.Backpack:
-                    return true;
+                    return Plugin.Backpack.Value;
                 default:
                     return false;
             }
         }
 
-        // the holstered pistol and the knife show; long guns slung on the back stay as the game has them
+        // the holstered pistol and the knife; long guns slung on the back stay as the game has them
         private static bool WeaponWanted(EquipmentSlot slot)
         {
-            return slot == EquipmentSlot.Holster || slot == EquipmentSlot.Scabbard;
+            switch (slot)
+            {
+                case EquipmentSlot.Holster:
+                    return Plugin.Pistol.Value;
+                case EquipmentSlot.Scabbard:
+                    return Plugin.Knife.Value;
+                default:
+                    return false;
+            }
         }
 
         // the game hides weapon models on your own body; shown puts back each renderer as it was before that
@@ -688,6 +725,10 @@ namespace WheresMyBody
 
             var mapped = new Transform[bones.Length];
             Transform leftFold = null, rightFold = null, neckFold = null;
+            // with the upper arms off, each whole arm folds into its shoulder
+            bool sleeves = Plugin.Sleeves.Value;
+            bool leftSleeve = sleeves && _leftForearm != null;
+            bool rightSleeve = sleeves && _rightForearm != null;
             for (int i = 0; i < bones.Length; i++)
             {
                 Transform bone = bones[i];
@@ -703,12 +744,12 @@ namespace WheresMyBody
                         break;
                     // only the upper arm unfolds; anything else on the arm folds into the elbow
                     case Part.LeftArm:
-                        mapped[i] = _leftForearm != null
+                        mapped[i] = leftSleeve
                             ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(0)
                             : leftFold ?? (leftFold = FoldProxy(clone, anchor, modelled, anchorBind, _leftArm, bones, bindposes, i));
                         break;
                     case Part.RightArm:
-                        mapped[i] = _rightForearm != null
+                        mapped[i] = rightSleeve
                             ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(1)
                             : rightFold ?? (rightFold = FoldProxy(clone, anchor, modelled, anchorBind, _rightArm, bones, bindposes, i));
                         break;
