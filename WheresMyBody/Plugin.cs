@@ -25,6 +25,7 @@ namespace WheresMyBody
         internal static ConfigEntry<bool> Enabled;
         internal static ConfigEntry<bool> Torso;
         internal static ConfigEntry<bool> Sleeves;
+        internal static ConfigEntry<bool> BodyArms;
         internal static ConfigEntry<bool> Armor;
         internal static ConfigEntry<bool> Rig;
         internal static ConfigEntry<bool> Backpack;
@@ -53,6 +54,10 @@ namespace WheresMyBody
                 new ConfigDescription("Show the upper part of your sleeves, and of any gear on them, above where the game's first person arms end. "
                     + "Off folds them into your shoulders: no seam at the elbow, but a gap can show between your arms and shoulders at a wide FOV.",
                     null, Order(89)));
+            BodyArms = Config.Bind("2. Body", "Body arms instead of first person arms", false,
+                new ConfigDescription("Hide the game's first person arms and show your body's own arms in their place, joined to your torso. "
+                    + "Replaces Upper arms while on. Needs Torso. The hands are lower detail up close and can twist in some animations.",
+                    null, Order(88)));
 
             Armor = Config.Bind("3. Gear", "Body armor", true,
                 new ConfigDescription("Show the armor in your body armor slot. Turn it off if a high collar blocks your view.", null, Order(80)));
@@ -70,6 +75,7 @@ namespace WheresMyBody
             Enabled.SettingChanged += OnSettingChanged;
             Torso.SettingChanged += OnSettingChanged;
             Sleeves.SettingChanged += OnSettingChanged;
+            BodyArms.SettingChanged += OnSettingChanged;
             Armor.SettingChanged += OnSettingChanged;
             Rig.SettingChanged += OnSettingChanged;
             Backpack.SettingChanged += OnSettingChanged;

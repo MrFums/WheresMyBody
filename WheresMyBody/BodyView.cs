@@ -17,7 +17,8 @@ namespace WheresMyBody
     // drawn but casts no shadow. The copy shares the original's mesh and materials and is skinned to the same
     // skeleton, with three changes:
     //  - the forearms and hands fold away (the game's first person arms are already drawn on the same bones);
-    //    the upper sleeves stay (unless turned off), since the game's arm stops partway up,
+    //    the upper sleeves stay (unless turned off), since the game's arm stops partway up; with body arms on,
+    //    the whole arm stays and the game's first person arms are hidden instead,
     //  - the neck and head fold away (the camera sits there),
     //  - the shoulders and anything else on the ribcage follow the chest as modelled. In first person the game
     //    turns the ribcage with your aim and squashes it to suit the field of view, which would bend the torso.
@@ -81,6 +82,13 @@ namespace WheresMyBody
         private readonly Transform[] _elbows = new Transform[2];
         private Transform _leftForearm;
         private Transform _rightForearm;
+
+        // With body arms on, the copies keep their whole arms on the real bones, and the game's first person arms
+        // are hidden. Only the renderers this switched off are switched back on.
+        private bool _bodyArms;
+        private readonly List<Renderer> _hiddenHands = new List<Renderer>();
+        // TEST-ONLY: remove before release
+        private static bool _loggedBones;
 
         private sealed class Clone
         {
@@ -421,10 +429,102 @@ namespace WheresMyBody
         internal void RefreshTorso()
         {
             RemoveClones(TorsoKey);
-            if (!Plugin.Torso.Value || !_body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) || skin == null)
+            bool hasSkin = Plugin.Torso.Value && _body.BodySkins.TryGetValue(EBodyModelPart.Body, out LoddedSkin skin) && skin != null;
+            _bodyArms = hasSkin && Plugin.BodyArms.Value;
+            if (hasSkin)
+            {
+                foreach (Renderer renderer in _body.BodySkins[EBodyModelPart.Body].GetRenderers())
+                    AddClone(renderer as SkinnedMeshRenderer, TorsoKey);
+            }
+            if (_bodyArms && !HasClones(TorsoKey))
+                _bodyArms = false;
+            UpdateHands();
+        }
+
+        private bool HasClones(int key)
+        {
+            foreach (Clone clone in _clones)
+            {
+                if (clone.Key == key)
+                    return true;
+            }
+            return false;
+        }
+
+        // the game's first person arms, hidden while the body's own arms stand in for them
+        private void UpdateHands()
+        {
+            ShowHands();
+            if (!_bodyArms || !_body.BodySkins.TryGetValue(EBodyModelPart.Hands, out LoddedSkin hands) || hands == null)
                 return;
-            foreach (Renderer renderer in skin.GetRenderers())
-                AddClone(renderer as SkinnedMeshRenderer, TorsoKey);
+            LogBonesOnce(hands);
+            foreach (Renderer renderer in hands.GetRenderers())
+            {
+                if (renderer == null || renderer.forceRenderingOff)
+                    continue;
+                renderer.forceRenderingOff = true;
+                _hiddenHands.Add(renderer);
+            }
+        }
+
+        private void ShowHands()
+        {
+            foreach (Renderer renderer in _hiddenHands)
+            {
+                if (renderer != null)
+                    renderer.forceRenderingOff = false;
+            }
+            _hiddenHands.Clear();
+        }
+
+        // TEST-ONLY: remove before release. Whether the first person arms and the body share their arm bones.
+        private void LogBonesOnce(LoddedSkin hands)
+        {
+            if (_loggedBones)
+                return;
+            _loggedBones = true;
+            SkinnedMeshRenderer handSkin = null;
+            foreach (Renderer renderer in hands.GetRenderers())
+            {
+                if ((handSkin = renderer as SkinnedMeshRenderer) != null)
+                    break;
+            }
+            SkinnedMeshRenderer bodySkin = null;
+            foreach (Clone clone in _clones)
+            {
+                if (clone.Key == TorsoKey && (bodySkin = clone.Source) != null)
+                    break;
+            }
+            if (handSkin == null || bodySkin == null)
+            {
+                Plugin.Log.LogInfo($"{Plugin.Name} TEST: no skin to compare (hands {handSkin != null}, body {bodySkin != null})");
+                return;
+            }
+            var handBones = new HashSet<Transform>(handSkin.bones);
+            var bodyBones = new HashSet<Transform>(bodySkin.bones);
+            var handOnly = new List<string>();
+            int shared = 0;
+            foreach (Transform bone in handBones)
+            {
+                if (bone == null)
+                    continue;
+                if (bodyBones.Contains(bone))
+                    shared++;
+                else
+                    handOnly.Add(bone.name);
+            }
+            var bodyArmOnly = new List<string>();
+            foreach (Transform bone in bodyBones)
+            {
+                if (bone == null || handBones.Contains(bone))
+                    continue;
+                Part part = Classify(bone);
+                if (part == Part.LeftArm || part == Part.RightArm)
+                    bodyArmOnly.Add(bone.name);
+            }
+            Plugin.Log.LogInfo($"{Plugin.Name} TEST: hands {handSkin.name} / body {bodySkin.name}: {shared} shared bones. "
+                + $"Hands only ({handOnly.Count}): {string.Join(", ", handOnly)}. "
+                + $"Body arm only ({bodyArmOnly.Count}): {string.Join(", ", bodyArmOnly)}");
         }
 
         internal void RefreshSlot(EquipmentSlot slot)
@@ -549,6 +649,7 @@ namespace WheresMyBody
                 Kill(_clones[i]);
             _clones.Clear();
             DestroyLean();
+            ShowHands();
             if (_body == null)
                 return;
             foreach (EquipmentSlot slot in Slots)
@@ -569,6 +670,7 @@ namespace WheresMyBody
                 Kill(_clones[i]);
             _clones.Clear();
             DestroyLean();
+            ShowHands();
             if (_body != null && Active.TryGetValue(_body, out BodyView view) && view == this)
                 Active.Remove(_body);
         }
@@ -725,7 +827,8 @@ namespace WheresMyBody
 
             var mapped = new Transform[bones.Length];
             Transform leftFold = null, rightFold = null, neckFold = null;
-            // with the upper arms off, each whole arm folds into its shoulder
+            // with body arms on, each whole arm stays on the real bones; with the upper arms off, it folds into its shoulder
+            bool bodyArms = _bodyArms;
             bool sleeves = Plugin.Sleeves.Value;
             bool leftSleeve = sleeves && _leftForearm != null;
             bool rightSleeve = sleeves && _rightForearm != null;
@@ -744,12 +847,12 @@ namespace WheresMyBody
                         break;
                     // only the upper arm unfolds; anything else on the arm folds into the elbow
                     case Part.LeftArm:
-                        mapped[i] = leftSleeve
+                        mapped[i] = bodyArms ? bone : leftSleeve
                             ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(0)
                             : leftFold ?? (leftFold = FoldProxy(clone, anchor, modelled, anchorBind, _leftArm, bones, bindposes, i));
                         break;
                     case Part.RightArm:
-                        mapped[i] = rightSleeve
+                        mapped[i] = bodyArms ? bone : rightSleeve
                             ? IsUpperArm(bone) ? Sleeve(bone) : Elbow(1)
                             : rightFold ?? (rightFold = FoldProxy(clone, anchor, modelled, anchorBind, _rightArm, bones, bindposes, i));
                         break;
