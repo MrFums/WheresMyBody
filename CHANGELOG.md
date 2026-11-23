@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.2
+
+Beta.
+
+- New setting in F12, "Body arms instead of first person arms", off by default. It hides the game's first person arms and shows your body's own arms in their place, joined to your torso. It needs Torso on.
+- Logs one line comparing the arm bones the first time it is on, for testing.
+
 ## 1.0.1
 
 - Settings in F12: turn off the whole mod, or your torso, upper arms, body armor, chest rig, backpack, holstered pistol or knife one by one.
