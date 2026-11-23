@@ -18,7 +18,7 @@ namespace WheresMyBody
     {
         public const string Guid = "com.fums.wheresmybody";
         public const string Name = "Fums-WheresMyBody";
-        public const string Version = "1.0.2";
+        public const string Version = "1.0.3";
 
         internal static ManualLogSource Log;
 

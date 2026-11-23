@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+Beta.
+
+- Your chest rig, armor and backpack stay in view without a flicker when an item goes in or out of them, such as a magazine during a reload, a stim, or the last shell loaded into a shotgun.
+
 ## 1.0.2
 
 Beta.

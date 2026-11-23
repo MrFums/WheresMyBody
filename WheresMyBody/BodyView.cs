@@ -694,7 +694,7 @@ namespace WheresMyBody
                 // blood on clothes gives the renderer its own material
                 if (!ReferenceEquals(source.sharedMaterial, clone.FirstMaterial))
                     CopyMaterials(clone);
-                bool shown = clone.Mesh != null && source.enabled && !source.forceRenderingOff && clone.SourceObject.activeInHierarchy;
+                bool shown = SourceShown(clone);
                 if (shown != clone.Shown)
                 {
                     clone.Copy.enabled = shown;
@@ -731,6 +731,16 @@ namespace WheresMyBody
             BySource[source] = clone;
             Bind(clone);
             CopyMaterials(clone);
+            // The game rebuilds a gear model whenever its contents change, such as a magazine leaving the chest rig
+            // during a reload, and can do so after this frame's LateUpdate. Shown at once, the copy never misses a frame.
+            clone.Shown = SourceShown(clone);
+            copy.enabled = clone.Shown;
+        }
+
+        private static bool SourceShown(Clone clone)
+        {
+            SkinnedMeshRenderer source = clone.Source;
+            return clone.Mesh != null && source.enabled && !source.forceRenderingOff && clone.SourceObject.activeInHierarchy;
         }
 
         private void RemoveClones(int key)
@@ -750,8 +760,12 @@ namespace WheresMyBody
             if (!ReferenceEquals(clone.Source, null) && BySource.TryGetValue(clone.Source, out Clone current) && ReferenceEquals(current, clone))
                 BySource.Remove(clone.Source);
             DestroyProxies(clone);
+            // hidden now: Destroy waits for the end of the frame, and the copy that replaces it is already drawn
             if (clone.Copy != null)
+            {
+                clone.Copy.enabled = false;
                 Destroy(clone.Copy.gameObject);
+            }
             clone.Copy = null;
         }
 
