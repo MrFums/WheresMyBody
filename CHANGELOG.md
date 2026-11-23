@@ -1,16 +1,11 @@
 # Changelog
 
-## 1.0.3
-
-Beta.
-
-- Your chest rig, armor and backpack stay in view without a flicker when an item goes in or out of them, such as a magazine during a reload, a stim, or the last shell loaded into a shotgun.
-
 ## 1.0.2
 
 Beta.
 
 - New setting in F12, "Body arms instead of first person arms", off by default. It hides the game's first person arms and shows your body's own arms in their place, joined to your torso. It needs Torso on.
+- Your chest rig, armor and backpack stay in view without a flicker when an item goes in or out of them, such as a magazine during a reload, a stim, or the last shell loaded into a shotgun.
 - Logs one line comparing the arm bones the first time it is on, for testing.
 
 ## 1.0.1
